@@ -1,0 +1,82 @@
+version: "3.2"
+
+services:
+  nginx:
+    container_name: nginx
+    image: ltonetwork/public-node-proxy
+    build: ./proxy
+    ports:
+      - ${PORT:-80}:80
+    networks:
+      - lto
+    depends_on:
+      - public-node
+      - indexer
+
+  public-node:
+    container_name: public-node
+    image: ltonetwork/public-node:${LTO_NODE_VERSION:-latest}
+    mem_reservation: 1g
+    volumes:
+      - lto-data:/lto
+    environment:
+      - LTO_NETWORK=${LTO_NETWORK:-MAINNET}
+      - LTO_ENABLE_REST_API=true
+      - LTO_WALLET_SEED=${LTO_WALLET_SEED}
+    ports:
+      - 6869:6869
+      - 6868:6868
+    networks:
+      - lto
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s -f -L -o /dev/null http://localhost:6869/node/status",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  indexer:
+    container_name: indexer
+    image: ltonetwork/indexer:${LTO_INDEXER_VERSION:-latest}
+    volumes:
+      - lto-index:/usr/data/lto-index
+    environment:
+      - NODE_ENV=production
+      - NODE_URL=http://public-node:6869
+      - API_PREFIX=index
+      - STORAGE_TYPE=${STORAGE_TYPE:-leveldb}
+      - LEVELDB_NAME=/usr/data/lto-index
+      - REDIS_URL=${REDIS_URL:-redis://redis}
+      - TRANSACTION_INDEXING=${TRANSACTION_INDEXING:-true}
+      - IDENTITY_INDEXING=${IDENTITY_INDEXING:-true}
+      - ASSOCIATION_INDEXING=${ASSOCIATION_INDEXING:-all}
+      - ANCHOR_INDEXING=${ANCHOR_INDEXING:-all}
+      - STATS_INDEXING=${STATS_INDEXING:-true}
+
+    depends_on:
+      public-node:
+        condition: service_healthy
+    networks:
+      - lto
+
+  redis:
+    container_name: redis
+    image: redislabs/redisgraph
+    volumes:
+      - lto-redis:/data
+    networks:
+      - lto
+    profiles:
+      - redis
+
+volumes:
+  lto-data:
+  lto-index:
+  lto-redis:
+
+networks:
+  lto:
+    driver: bridge
